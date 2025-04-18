@@ -590,7 +590,7 @@
             $('<div></div>').appendTo(line).valueSpinner({ canEdit: true, labelText: 'Initial Delay', fmtMask: "#,##0", binding: binding + 'netSettings.keepAliveInitialDelay', min: 0, max: 1000, step: 1, units: 'sec', inputAttrs: { maxlength: 5 }, labelAttrs: { style: { marginLeft: '3.2rem', marginRight: '.25rem' } } });
 
             line = $('<div></div>').appendTo(divSettings);
-            $('<div></div>').addClass('pnl-rs485-inactivity').appendTo(line).valueSpinner({ canEdit: true, labelText: 'Inactivity Timeout', fmtMask: "#,##0", emptyMask: "---", binding: binding + 'inactivityRetry', min: 1, max: 1000, step: 1, units: 'sec', inputAttrs: { maxlength: 5 }, labelAttrs: { style: { width: '8.3rem', marginRight: '.25rem' } } });
+            $('<div></div>').addClass('pnl-rs485-inactivity').appendTo(line).valueSpinner({ canEdit: true, labelText: 'Inactivity Timeout', fmtMask: "#,##0", emptyMask: "---", binding: binding + 'inactivityRetry', min: 0, max: 1000, step: 1, units: 'sec', inputAttrs: { maxlength: 5 }, labelAttrs: { style: { width: '8.3rem', marginRight: '.25rem' } } });
             var divMock = $('<div></div>').addClass('pnl-rs485-mock').appendTo(divSettings).hide();
             line = $('<div></div>').appendTo(divMock);
 
