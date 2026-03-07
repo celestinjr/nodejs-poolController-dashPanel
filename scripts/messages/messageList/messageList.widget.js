@@ -1,7 +1,7 @@
 (function ($) {
     $.widget("pic.messageList", {
         options: {
-            receivingMessages: false, pinScrolling: false, changesOnly: false, messageKeys: {}, contexts: {}, messages: {}, portFilters: [], filters: [], rowIds: [], ports: [], expandedRows: {}, loadedFilename: null, loadedDescription: null
+            receivingMessages: false, pinScrolling: false, changesOnly: false, messageKeys: {}, contexts: {}, messages: {}, portFilters: [], filters: [], rowIds: [], ports: [], expandedRows: {}, loadedFilename: null, loadedDescription: null, lastSelectedRowId: null, justSelectedRowId: null
         },
         _create: function () {
             var self = this, o = self.options, el = self.element;
@@ -198,6 +198,11 @@
             $('<div class="picChangesOnly mmgrButton picIconRight" title="Show only changes"><i class="fas fa-not-equal"></i></div>').appendTo(div);
             $('<div class="picReplayLog mmgrButton picIconRight" title="Replay List To njsPC"><i class="fas fa-paper-plane"></i></div>').appendTo(div)
                 .on('click', (evt) => { self._promptReplayList(); });
+            div.find('div.mmgrButton').attr('role', 'button').attr('tabindex', 0);
+            div.find('div.picStartLogs').attr('aria-label', 'Start Or Stop Log').attr('aria-pressed', 'false').attr('data-nav-id', 'mmgr-start-stop-log');
+            div.find('div.picScrolling').attr('aria-label', 'Pin Selection').attr('aria-pressed', 'false').attr('data-nav-id', 'mmgr-pin-selection');
+            div.find('div.picChangesOnly').attr('aria-label', 'Show Only Changes').attr('aria-pressed', 'false').attr('data-nav-id', 'mmgr-show-only-changes');
+            div.find('div.picReplayLog').attr('aria-label', 'Replay List To Controller').attr('data-nav-id', 'mmgr-replay-list');
 
 
             row = $('<tr></tr>').addClass('msgList-body').appendTo(tbody);
@@ -242,6 +247,63 @@
             });
             vlist.on('bindrow', function (evt) { self._bindVListRow(evt.row, evt.rowData); });
             
+            // Handle row clicks for second-click expansion
+            el.on('click', 'tr.msgRow', function(evt) {
+                // Don't trigger if clicking on buttons or other interactive elements
+                if ($(evt.target).closest('i.fa-clipboard, div.expansion-close-btn, div.expansion-addqueue-btn, div.expansion-entityflow-btn').length > 0) {
+                    return;
+                }
+                
+                var row = $(this);
+                var rowId = row.attr('data-rowid');
+                
+                // Check if this was just selected by selchanged event (first click)
+                if (o.justSelectedRowId === rowId) {
+                    // Clear the flag so next click will be treated as second click
+                    o.justSelectedRowId = null;
+                    return;
+                }
+                
+                // Check if this row is already selected (second click)
+                if (row.hasClass('selected')) {
+                    // Second click on already-selected row: toggle expansion
+                    var msg = o.messages['m' + rowId];
+                    var ndx = parseInt(rowId, 10);
+                    var msgKey = row.attr('data-msgkey');
+                    var docKey = row.attr('data-dockey');
+                    var prev;
+                    var forMsg;
+                    
+                    // Find previous message with same key
+                    var allRows = vlist[0].getAllRows ? vlist[0].getAllRows() : [];
+                    for (var i = ndx - 1; i >= 0; i--) {
+                        if (allRows[i]) {
+                            var p = $(allRows[i].row);
+                            if (p.attr('data-msgkey') === msgKey) {
+                                prev = o.messages['m' + p.attr('data-rowid')];
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if (typeof msg.responseFor !== 'undefined' && msg.responseFor.length > 0) {
+                        let id = msg.responseFor[0];
+                        let rid = o.rowIds.find(elem => elem.msgId === id);
+                        if (typeof rid !== 'undefined')
+                            forMsg = o.messages['m' + rid.rowId];
+                    }
+                    
+                    var context = o.contexts[docKey] || o.contexts[msgKey];
+                    self._toggleInlineExpansion(row, msg, prev, forMsg, context);
+                }
+            });
+            el.on('keydown', 'tr.msgRow', function (evt) {
+                if (evt.key === 'Enter' || evt.key === ' ' || evt.key === 'Spacebar') {
+                    evt.preventDefault();
+                    $(evt.currentTarget).trigger('click');
+                }
+            });
+            
             // Handle close button clicks on expansion content
             el.on('click', 'div.expansion-close-btn', function(evt) {
                 evt.stopPropagation();
@@ -251,6 +313,7 @@
                 
                 // Close the expansion
                 row.removeClass('row-expanded');
+                row.attr('aria-expanded', 'false');
                 container.remove();
                 delete o.expandedRows[rowId];
                 
@@ -274,8 +337,8 @@
                 console.log('Entity Flow button clicked. msg._id:', msg._id);
                 
                 // Switch to Entity Flow tab
-                var entityFlowTab = $('button.view-tab[data-view="entityFlow"]');
-                if (entityFlowTab.length) entityFlowTab.click();
+                var tabBar = $('div.mmgrTabBar')[0];
+                if (tabBar && tabBar.selectTabById) tabBar.selectTabById('tabEntityFlow');
                 
                 // Use setTimeout to allow tab switch to complete before scrolling
                 setTimeout(function() {
@@ -297,34 +360,42 @@
                     $('div.picSendMessageQueue')[0].addMessage(msg);
                 }
             });
+            el.on('keydown', 'div.mmgrButton, div.expansion-close-btn, div.expansion-entity-btn, div.expansion-addqueue-btn', function (evt) {
+                if (evt.key === 'Enter' || evt.key === ' ' || evt.key === 'Spacebar') {
+                    evt.preventDefault();
+                    $(evt.currentTarget).trigger('click');
+                }
+            });
             
             vlist.on('selchanged', function (evt) {
                 var pnlDetail = $('div.picMessageDetail');
-                var msg = o.messages['m' + evt.newRow.attr('data-rowid')];
-                var ndx = parseInt(evt.newRow.attr('data-rowid'), 10);
-                var msgKey = evt.newRow.attr('data-msgkey');
-                var docKey = evt.newRow.attr('data-dockey');
-                var prev;
-                var forMsg;
-                for (var i = ndx - 1; i >= 0; i--) {
-                    var p = $(evt.allRows[i].row);
-                    if (p.attr('data-msgkey') === msgKey) {
-                        prev = o.messages['m' + p.attr('data-rowid')];
-                        break;
-                    }
-                }
-                if (typeof msg.responseFor !== 'undefined' && msg.responseFor.length > 0) {
-                    let id = msg.responseFor[0];
-                    let rid = o.rowIds.find(elem => elem.msgId === id);
-                    if (typeof rid !== 'undefined')
-                        forMsg = o.messages['m' + rid.rowId];
-                }
+                var rowId = evt.newRow.attr('data-rowid');
                 
-                // Get context - try both docKey and msgKey
-                var context = o.contexts[docKey] || o.contexts[msgKey];
+                // Set a flag to prevent the click handler from opening on first click
+                o.justSelectedRowId = rowId;
                 
-                // Toggle inline expansion
-                self._toggleInlineExpansion(evt.newRow, msg, prev, forMsg, context);
+                // First click on a new row: close any open expansions FIRST
+                self._closeAllExpandedRows();
+                
+                // THEN add expansion hint icon to the newly selected row
+                var lastCell = evt.newRow.find('td:last');
+                // Create and add the new hint icon
+                var hintIcon = $('<i></i>')
+                    .addClass('fas fa-chevron-down row-expand-hint')
+                    .attr('title', 'Click to view details')
+                    .css({
+                        position: 'absolute',
+                        right: '10px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        color: '#FF6B35',
+                        fontSize: '18px',
+                        fontWeight: 'bold',
+                        textShadow: '0 0 3px rgba(255,255,255,0.8)',
+                        pointerEvents: 'none',
+                        zIndex: 5
+                    });
+                lastCell.append(hintIcon);
                 
                 // Hide the bottom detail panel since we're using inline expansion
                 pnlDetail.slideUp(200);
@@ -338,6 +409,7 @@
                 //console.log(evt);
                 if (!o.pinScrolling) $(evt.currentTarget).removeClass('selected');
                 else $(evt.currentTarget).addClass('selected');
+                $(evt.currentTarget).attr('aria-pressed', o.pinScrolling ? 'true' : 'false');
             });
             el.on('click', 'div.picChangesOnly', function (evt) {
                 o.changesOnly = !o.changesOnly;
@@ -349,6 +421,7 @@
                     $(evt.currentTarget).removeClass('selected');
                     el.removeClass('changesOnly');
                 }
+                $(evt.currentTarget).attr('aria-pressed', o.changesOnly ? 'true' : 'false');
                 self._filterMessages();
             });
             // Filter/Clear controls moved to the top bar (messageManager.html)
@@ -588,18 +661,7 @@
                 height: 'auto',
                 title: 'Filter Out Messages',
                 buttons: [
-                    {
-                        text: 'Exclude All', icon: '<i class="fas fa-broom"></i>',
-                        click: function () {
-                            // Exclude all message filters (do NOT change ports)
-                            try {
-                                dlg.attr('data-processing', true);
-                                dlg.find('div.picCheckbox.cb-filter').each(function () { this.val(false); });
-                                if (typeof fnUpdateParentChecks === 'function') fnUpdateParentChecks();
-                            } catch (err) { console.log(err); }
-                            finally { dlg.attr('data-processing', false); }
-                        }
-                    },
+                    
                     {
                         text: 'Apply', icon: '<i class="fas fa-save"></i>',
                         click: function () {
@@ -1361,6 +1423,9 @@
             row.attr('data-msgdir', msg.direction);
             row.attr('data-port', msg.portId);
             row.addClass('msgRow');
+            row.attr('tabindex', 0);
+            row.attr('aria-expanded', 'false');
+            row.attr('aria-label', `Message ${msg._id || obj.rowId}, ${msg.direction || 'unknown'} direction`);
             var ctx = msgManager.getListContext(msg);
             o.contexts[ctx.messageKey] = ctx;
             if ((typeof msg.isValid !== 'undefined' && !msg.isValid) || (typeof msg.valid !== 'undefined' && !msg.valid)) row.addClass('invalid');
@@ -1444,6 +1509,9 @@
             //    actionByte: action, sourceAddr: addrSource, destAddr: addrDest, payloadLength: length
             row.attr('data-msgdir', msg.direction);
             row.addClass('msgApiRow');
+            row.attr('tabindex', 0);
+            row.attr('aria-expanded', 'false');
+            row.attr('aria-label', `API call ${msg.path || ''}`);
             row.attr('data-msgkey', `${msg.requestor}${msg.path}`);
             $('<span></span>').text('').appendTo(r.cells[1]);
             var dir = $('<i></i>').addClass('fas').addClass(msg.direction === 'out' ? 'fa-arrow-circle-left' : 'fa-arrow-circle-right');
@@ -1479,6 +1547,9 @@
             row.attr('data-msgdir', msg.direction);
             // row.attr('data-port', msg.portId);
             row.addClass('msgRow');
+            row.attr('tabindex', 0);
+            row.attr('aria-expanded', 'false');
+            row.attr('aria-label', `Message ${msg._id || obj.rowId}, ${msg.direction || 'unknown'} direction`);
             var ctx = msgManager.getListContext(msg);
             o.contexts[ctx.messageKey] = ctx;
             if ((typeof msg.isValid !== 'undefined' && !msg.isValid) || (typeof msg.valid !== 'undefined' && !msg.valid)) row.addClass('invalid');
@@ -1655,6 +1726,7 @@
                 if (o.receivingMessages) {
                     el.find('div.picStartLogs > i').removeClass('far').addClass('fas');
                     el.find('div.picStartLogs').addClass('selected');
+                    el.find('div.picStartLogs').attr('aria-pressed', 'true');
                     // Clear the loaded filename and description when starting live logging
                     o.loadedFilename = null;
                     o.loadedDescription = null;
@@ -1663,6 +1735,7 @@
                 else {
                     el.find('div.picStartLogs > i').removeClass('fas').addClass('far');
                     el.find('div.picStartLogs').removeClass('selected');
+                    el.find('div.picStartLogs').attr('aria-pressed', 'false');
 
                 }
             }
@@ -1683,10 +1756,13 @@
         
             // CASE 1: Row is already open
             if (isAlreadyOpen) {
-                if (forceOpen) return; // It's already there, do nothing.
+                if (forceOpen) {
+                    return; // It's already there, do nothing.
+                }
                 
                 // User Clicked -> Close it (Toggle)
                 row.removeClass('row-expanded');
+                row.attr('aria-expanded', 'false');
                 expansionDiv.remove();
                 delete o.expandedRows[rowId];
                 
@@ -1712,14 +1788,17 @@
             
             // Go to Entity Flow button (click handled via delegation in _initList)
             var goToEntityBtn = $('<div class="expansion-entity-btn" title="View in Entity Flow"><i class="fas fa-project-diagram"></i></div>');
+            goToEntityBtn.attr('role', 'button').attr('tabindex', 0).attr('aria-label', 'View In Entity Flow').attr('data-nav-id', 'mmgr-expansion-entity-flow');
             btnContainer.append(goToEntityBtn);
             
             // Add to queue button (click handled via delegation in _initList)
             var addToQueueBtn = $('<div class="expansion-addqueue-btn" title="Add to Send Queue"><i class="far fa-hand-point-up"></i></div>');
+            addToQueueBtn.attr('role', 'button').attr('tabindex', 0).attr('aria-label', 'Add To Send Queue').attr('data-nav-id', 'mmgr-expansion-add-queue');
             btnContainer.append(addToQueueBtn);
             
             // Close button
             var closeBtn = $('<div class="expansion-close-btn" title="Close"><i class="fas fa-times"></i></div>');
+            closeBtn.attr('role', 'button').attr('tabindex', 0).attr('aria-label', 'Close Message Details').attr('data-nav-id', 'mmgr-expansion-close');
             btnContainer.append(closeBtn);
             
             container.append(btnContainer);
@@ -1745,6 +1824,7 @@
             self._buildCompactHexDisplay(hexSection, msg, prev, context);
         
             row.addClass('row-expanded');
+            row.attr('aria-expanded', 'true');
             o.expandedRows[rowId] = true;
             
             // Update stored HTML immediately for the hex display
@@ -1775,6 +1855,7 @@
                 var rowId = $row.attr('data-rowid');
                 
                 $row.removeClass('row-expanded');
+                $row.attr('aria-expanded', 'false');
                 $row.find('div.inline-expansion-content').remove();
                 
                 if (rowId) {
@@ -1783,6 +1864,9 @@
                     self._updateStoredRowHtml(vlist, rowId, $row);
                 }
             });
+            
+            // Remove expansion hint icons from all rows
+            el.find('i.row-expand-hint').remove();
         },
         _updateStoredRowHtml: function(vlist, rowId, row) {
             // Update the stored outerHTML in the virtual list's rows array
