@@ -144,6 +144,45 @@
             line = $('<div></div>').appendTo(grpPressure);
             $('<div></div>').appendTo(line).valueSpinner({ canEdit: true, labelText: 'Dirty', binding: binding + 'dirtyPressure', fmtMask: '#,##0.##', min: 0, max: 1000, step: 1, inputAttrs: { maxlength: 7 }, labelAttrs: { style: { width: '4rem' } } });
 
+            // Filter Health Monitoring Configuration
+            $('<hr></hr>').appendTo(pnl);
+            var grpHealth = $('<fieldset></fieldset>').css({ display: 'inline-block', verticalAlign: 'top' }).appendTo(pnl);
+            $('<legend></legend>').text('Filter Health Monitoring').appendTo(grpHealth);
+            line = $('<div></div>').appendTo(grpHealth);
+            $('<div></div>').appendTo(line).valueSpinner({ canEdit: true, labelText: 'Max Allowable Pressure', binding: binding + 'maxAllowablePressure', fmtMask: '#,##0.##', min: 0, max: 100, step: 1, inputAttrs: { maxlength: 5 }, labelAttrs: { style: { marginRight: '.25rem' } } });
+            line = $('<div></div>').appendTo(grpHealth);
+            $('<div></div>').appendTo(line).valueSpinner({ canEdit: true, labelText: 'Dirty Ratio Fraction', binding: binding + 'dirtyRatioFraction', fmtMask: '#,##0.##', min: 0.1, max: 2, step: 0.05, inputAttrs: { maxlength: 5 }, labelAttrs: { style: { marginRight: '.25rem' } } });
+            line = $('<div></div>').appendTo(grpHealth);
+            $('<div></div>').appendTo(line).valueSpinner({ canEdit: true, labelText: 'Headroom Alarm %', binding: binding + 'headroomAlarmThreshold', fmtMask: '#,##0', min: 50, max: 100, step: 5, inputAttrs: { maxlength: 3 }, labelAttrs: { style: { marginRight: '.25rem' } } });
+            line = $('<div></div>').appendTo(grpHealth);
+            $('<div></div>').appendTo(line).valueSpinner({ canEdit: true, labelText: 'Min Reliable RPM', binding: binding + 'minReliableRpm', fmtMask: '#,##0', min: 0, max: 3450, step: 100, inputAttrs: { maxlength: 5 }, labelAttrs: { style: { marginRight: '.25rem' } } });
+            line = $('<div></div>').appendTo(grpHealth);
+            $('<div></div>').appendTo(line).checkbox({ labelText: 'Use Affinity Correction', binding: binding + 'useAffinityCorrection' });
+
+            // Calibration profiles section
+            var grpProfiles = $('<fieldset class="picFilterProfiles"></fieldset>').css({ display: 'inline-block', verticalAlign: 'top' }).appendTo(pnl);
+            $('<legend></legend>').text('Calibration Profiles').appendTo(grpProfiles);
+            var profileList = $('<div class="picProfileList"></div>').appendTo(grpProfiles);
+            var profileBtnPnl = $('<div class="picBtnPanel btn-panel"></div>').appendTo(grpProfiles);
+            var btnDiscover = $('<div></div>').appendTo(profileBtnPnl).actionButton({ text: 'Discover Profiles', icon: '<i class="fas fa-search"></i>' });
+            btnDiscover.on('click', function (e) {
+                var p = $(e.target).parents('div.picAccordian-contents:first');
+                var v = dataBinder.fromElement(p);
+                $.getApiService('/config/filter/' + v.id + '/profiles/discover', null, 'Discovering profiles...', function (data) {
+                    if (data.discoveredProfiles && data.discoveredProfiles.length > 0) {
+                        self._renderProfiles(profileList, data.discoveredProfiles, v.id);
+                    }
+                });
+            });
+            var btnStartCal = $('<div></div>').appendTo(profileBtnPnl).actionButton({ text: 'Start Calibration', icon: '<i class="fas fa-play"></i>' });
+            btnStartCal.on('click', function (e) {
+                var p = $(e.target).parents('div.picAccordian-contents:first');
+                var v = dataBinder.fromElement(p);
+                $.putApiService('/state/filter/' + v.id + '/calibration/start', { mode: 'manual' }, 'Starting calibration...', function (data) {
+                    console.log({ calibrationStarted: data });
+                });
+            });
+
             var bindpnl = $('<div></div>').addClass('pnlDeviceBinding').REMBinding({ servers: o.servers }).appendTo(pnl).hide();
             $('<hr></hr>').prependTo(bindpnl);
 
@@ -176,6 +215,39 @@
                 el.find('div[data-bind$="dirtyPressure"]').each(function () { this.units(units.name); });
             }
         },
+        _renderProfiles: function (container, profiles, filterId) {
+            var self = this;
+            container.empty();
+            if (!profiles || profiles.length === 0) {
+                $('<div class="picNoProfiles"></div>').text('No calibration profiles configured.').appendTo(container);
+                return;
+            }
+            var tbl = $('<table class="picProfileTable"><thead><tr><th>Name</th><th>Circuits</th><th>Data Points</th><th>Active</th><th></th></tr></thead></table>').appendTo(container);
+            var tbody = $('<tbody></tbody>').appendTo(tbl);
+            for (var i = 0; i < profiles.length; i++) {
+                var p = profiles[i];
+                var tr = $('<tr></tr>').appendTo(tbody);
+                $('<td></td>').text(p.name || '').appendTo(tr);
+                $('<td></td>').text(Array.isArray(p.circuitIds) ? p.circuitIds.join(', ') : '').appendTo(tr);
+                $('<td></td>').text(Array.isArray(p.dataPoints) ? p.dataPoints.length : 0).appendTo(tr);
+                $('<td></td>').text(p.isActive ? 'Yes' : 'No').appendTo(tr);
+                var tdActions = $('<td></td>').appendTo(tr);
+                (function (profile) {
+                    var btnDel = $('<button class="picBtnSmall" title="Remove profile"><i class="fas fa-trash"></i></button>').appendTo(tdActions);
+                    btnDel.on('click', function () {
+                        $.ajax({
+                            url: '/njsPC/config/filter/' + filterId + '/profile',
+                            type: 'DELETE',
+                            contentType: 'application/json',
+                            data: JSON.stringify({ profileId: profile.id }),
+                            success: function (data) {
+                                if (data.profiles) self._renderProfiles(container, data.profiles, filterId);
+                            }
+                        });
+                    });
+                })(p);
+            }
+        },
         dataBind: function (obj) {
             var self = this, o = self.options, el = self.element;
             var acc = el.find('div.picAccordian:first');
@@ -186,6 +258,10 @@
             if (obj.master === 1) el.find('div.pnlDeviceBinding').show();
             else el.find('div.pnlDeviceBinding').hide();
             self.setPressureUnits(obj.pressureUnits);
+            // Render calibration profiles if present.
+            if (Array.isArray(obj.profiles)) {
+                self._renderProfiles(el.find('.picProfileList'), obj.profiles, obj.id);
+            }
             dataBinder.bind(el, obj);
         }
     });

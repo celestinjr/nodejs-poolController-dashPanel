@@ -353,6 +353,13 @@
                     this.setEquipmentData(data);
                 });
             });
+            o.socket.on('filterCalibration', function (data) {
+                console.log({ evt: 'filterCalibration', data: data });
+                // Update any calibration progress displays.
+                $('div.picFilterCalibrationStatus').each(function () {
+                    if (typeof this.setCalibrationData === 'function') this.setCalibrationData(data);
+                });
+            });
             o.socket.on('config', function (data) {
                 console.log({ evt: 'config', data: data });
             });
