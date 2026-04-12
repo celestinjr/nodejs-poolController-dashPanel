@@ -97,6 +97,22 @@
             $('<label class="picFilterName" data-bind="name"></label>').appendTo(el);
             $('<span class="picFilterPressure picData"></label><span class="picPressureValue" data-bind="pressure" data-fmttype="number" data-fmtmask="#,##0.##" data-fmtempty="----"></span><label class="picUnits" data-bind="pressureUnits.name"></label></span>').appendTo(el);
             $('<span class="picFilterPercentage picData"></label><span class="picPercentValue" data-bind="cleanPercentage" data-fmttype="number" data-fmtmask="#,##0.##" data-fmtempty="----"></span><label class="picUnits">%</label></span>').appendTo(el);
+            // Filter health monitoring display.
+            $('<span class="picFilterHealth picData"><label class="picFilterHealthLabel">Health</label><span class="picHealthValue" data-bind="filterHealth" data-fmttype="number" data-fmtmask="#,##0.#" data-fmtempty="----"></span><label class="picUnits">%</label></span>').appendTo(el);
+            $('<span class="picFilterProfile picData"><label class="picProfileLabel">Profile</label><span class="picProfileValue" data-bind="matchedProfileName" data-fmtempty="----"></span></span>').appendTo(el);
+            $('<span class="picFilterDelta picData"><label class="picDeltaLabel">\u0394P</label><span class="picDeltaValue" data-bind="pressureDelta" data-fmttype="number" data-fmtmask="+#,##0.##;-#,##0.##" data-fmtempty="----"></span></span>').appendTo(el);
+            // Capture baseline button for manual quick capture.
+            var btnCapture = $('<button class="picCaptureBaseline" title="Capture current pressure as clean baseline">Capture Baseline</button>').appendTo(el);
+            btnCapture.on('click', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                var id = el.attr('data-id');
+                $.putApiService('/state/filter/' + id + '/calibration/capture', {}, 'Capturing baseline...', function (result) {
+                    if (result.error) {
+                        $.putApiService.showError(result.error);
+                    }
+                });
+            });
             self.setEquipmentData(o);
         },
         setEquipmentData: function (data) {
@@ -104,6 +120,23 @@
             if (typeof data.isOn !== 'undefined') {
                 el.find('div.picFilterState').attr('data-ison', makeBool(data.isOn));
                 el.find('div.picFilterState').attr('data-status', makeBool(data.isOn));
+            }
+            // Set health indicator color based on filterHealth value.
+            if (typeof data.filterHealth !== 'undefined') {
+                var health = parseFloat(data.filterHealth);
+                var healthEl = el.find('.picFilterHealth');
+                healthEl.removeClass('health-good health-warn health-critical');
+                if (!isNaN(health)) {
+                    if (health >= 70) healthEl.addClass('health-good');
+                    else if (health >= 30) healthEl.addClass('health-warn');
+                    else healthEl.addClass('health-critical');
+                }
+            }
+            // Show/hide profile-based fields based on whether filter health data is available.
+            if (typeof data.filterHealth !== 'undefined' && data.filterHealth !== null) {
+                el.find('.picFilterHealth, .picFilterProfile, .picFilterDelta, .picCaptureBaseline').show();
+            } else {
+                el.find('.picFilterHealth, .picFilterProfile, .picFilterDelta').hide();
             }
             dataBinder.bind(el, data);
         }
